@@ -1,0 +1,699 @@
+## Referenced Rig Exporter v015
+# F.Bango 2022
+
+##########   INSTRUCTIONS   #############################
+###  RUN THE CLEAN BUTTON ( imports Refs / cleans namespace / 
+###  Select the Root of the rig, Hit Export.  
+## If using outside rig, create a rig hiarchy using the tool and move rig components into said groups.
+                 
+
+## Adding BS shape options / shape attrs / attr value- absolute enabled
+## maya version mel.eval attr on bakeME fbx portion seems to be failing for some reason
+
+import maya.cmds as cmds
+import maya.mel as mel
+
+# Loads FBX plugin in case its off
+cmds.loadPlugin("fbxmaya") # LOAD PLUGIN
+
+def helpMenu(*args):
+	site = "www.google.com"
+	print(" help menu works")
+	cmds.showHelp(site, absolute=True)	
+
+
+def rigGroups(*args):
+    
+    global nameBase    
+    sel = cmds.ls(sl=True)
+    result = cmds.promptDialog(
+    title='Rig Name',
+    message='Enter Rig Prefix :',
+    button=['OK', 'Cancel'],
+    defaultButton='OK',
+    cancelButton='Cancel',
+    dismissString='Cancel')
+    
+    if result == 'OK':
+        nameBase = cmds.promptDialog(query=True, text=True)
+    
+    #cmds.warning("PLEASE TYPE RIG NAME")
+    #nameBase = input('Enter Rig Name :')
+    print(nameBase)
+
+    if len(nameBase) == 0:
+        print(len(nameBase))
+        print ("Please type a rig name")
+    else:
+        print(len(nameBase))
+        maingrp = cmds.group(em=True, name=nameBase + "_Rig")
+        cmds.group(em=True, name="Model")
+        cmds.addAttr(
+            ln="modelSelect",
+            at="enum",
+            en="Normal:Template:LOCKED:",
+            hidden=False,
+            keyable=True,
+        )
+        cmds.group(em=True, name="Controls")
+        cmds.group(em=True, name="Engine")
+        cmds.group(em=True, name="DNT")
+        cmds.group(em=True, name="IK")
+        cmds.group(em=True, name="Joints")
+        cmds.group(em=True, name="Extras")
+        cmds.group(em=True, name="UE_Skeleton")
+        cmds.parent("Model", maingrp)
+        cmds.select(clear=1)
+        cmds.parent("Engine", maingrp)
+        cmds.parent("DNT", "Engine")
+        cmds.parent("IK", "DNT")
+        cmds.parent("Joints", "DNT")
+        cmds.parent("Extras", "DNT")
+        cmds.parent("Controls", "Engine")
+        cmds.parent("UE_Skeleton", maingrp)
+        cmds.setAttr("Model.overrideEnabled", 1)
+        cmds.connectAttr("Model.modelSelect", "Model.overrideDisplayType")
+        
+        cmds.select(clear=1)
+        
+        del nameBase
+
+
+def cleanNameSpaces(*args):
+    
+    
+#renames anim layers to prevent issues with maya naming ( head - head1 ex:) 
+                
+    allLayers=cmds.ls(type="animLayer")
+    
+    if len(allLayers)>=1:
+        for s in allLayers:
+            name=(s)
+            cmds.rename(s,name+"_AL")
+    
+    # imports the reference selected
+    selRef = cmds.ls(sl=1, rn=True)
+    print(selRef)
+    ref_path = cmds.referenceQuery( '%s'%selRef[0], filename=True ) or []
+    print (ref_path)
+    refChild_path= cmds.referenceQuery( '%s'%selRef[0], filename=True, ch=1 ) or [] 
+    print (refChild_path)
+    rigNS= cmds.file(ref_path, q = True, namespace = True)
+    modelNS = cmds.file(refChild_path, q = True, namespace = True)
+    if cmds.referenceQuery(ref_path, isLoaded=True):
+        cmds.file(ref_path, importReference=True)
+        cmds.file(refChild_path, importReference=True)
+        print("Refs Imported")
+    # deletes and merges the selected items namespace
+    delNS = cmds.checkBox(delModelNS, query=True)
+    if (delNS):
+        cmds.namespace(removeNamespace=rigNS, mergeNamespaceWithRoot=True)
+        cmds.namespace(removeNamespace=modelNS, mergeNamespaceWithRoot=True) 
+        print("both rig namespaces deleted")
+    else:
+        cmds.namespace(removeNamespace=rigNS, mergeNamespaceWithRoot=True)
+        print("Carry On my wayward son") 
+    print("namespaces cleared")
+    
+    ''' 
+##----------------------------------------------------------------------------------------------------------------------        
+    #old import refs (all)
+    all_ref_paths = cmds.file(q=True, reference=True) or []  
+
+    for ref_path in all_ref_paths:
+        if cmds.referenceQuery(ref_path, isLoaded=True):  
+            cmds.file(ref_path, importReference=True) 
+    
+            new_ref_paths = cmds.file(q=True, reference=True)  
+            if new_ref_paths:
+                for new_ref_path in new_ref_paths:
+                    if new_ref_path not in all_ref_paths: 
+                        all_ref_paths.append(new_ref_path)
+   
+    
+    #deletes all namespaces
+    
+    cmds.namespace(setNamespace=':')
+    all_namespaces = [x for x in cmds.namespaceInfo(listOnlyNamespaces=True, recurse=True) if x != "UI" and x != "shared"]
+    if all_namespaces:
+        all_namespaces.sort(key=len, reverse=True)
+        for namespace in all_namespaces:
+            if cmds.namespace(exists=namespace) is True:
+                cmds.namespace(removeNamespace=namespace, mergeNamespaceWithRoot=True)
+                
+    '''
+###----------------------------------------------------------------------------------------------------------------------        
+   
+    for s in cmds.ls(type ='joint'):
+        cmds.setAttr("%s.drawStyle"%s, lock=0)
+        cmds.setAttr("%s.visibility"%s, lock= 0)
+        cmds.setAttr("%s.visibility"%s, 1)
+        cmds.setAttr("%s.drawStyle"%s, 0)
+    cmds.confirmDialog(message="Joints Visible now")                  
+#Untemplates the model in the rig so it doesnt come in as templated or ref locked FBX                
+    for s in cmds.ls("*Model"):
+        cmds.setAttr("%s.overrideEnabled"%s,0)
+                   
+                
+                
+    #unlocks rig as final step            
+    unlockAll()                  
+#################################
+## unlocks the rig prior to baking to ensure locked groups get baked..
+
+def unlockAll(*args):
+
+    allNodes = cmds.ls()
+    for node in allNodes:
+        cmds.lockNode(node, l=False)
+    cmds.confirmDialog(message="Everything should be unlocked bro")
+
+
+
+    lockme = cmds.ls(
+        "*_Pad",
+        "*_SDK",
+        "*_Rig",
+        "*Model",
+        "*Engine",
+        "*DNT",
+        "*Joints",
+        "*IKs",
+        "*Extras",
+        "*Controls",
+        "*Grp",
+        "*grp",
+        "*null",
+        "*Null",
+    )
+    for obj in lockme:
+        for attr in [
+            ".tx",
+            ".ty",
+            ".tz",
+            ".rx",
+            ".ry",
+            ".rz",
+            ".sx",
+            ".sy",
+            ".sz",
+            ".v",
+        ]:
+            cmds.setAttr(obj + attr, l=False, k=True)
+    cmds.confirmDialog(message="!!!! Rig is unlocked Bro, DO NOT SAVE THIS FILE !!!!")
+    ##locks the inhereit transform on the spineGrp on rrm rigs
+    try:
+        cmds.select("spineGrp")
+        spineLock=cmds.ls(sl=1)
+        cmds.setAttr("%s.it"%spineLock[0],lock=1)
+        print("attr locked")
+    except:
+        print ("carry on")
+
+
+
+
+
+#################################
+def unlockCam(*args):
+    allLayers=cmds.ls(type="animLayer")
+
+    if len(allLayers)>=1:
+        for s in allLayers:
+            name=(s)
+            cmds.rename(s,name+"_AL")
+
+    # imports the reference selected
+    selRef = cmds.ls(sl=1, rn=True)
+    print(selRef)
+    ref_path = cmds.referenceQuery( '%s'%selRef[0], filename=True ) or []
+    print (ref_path)
+    camNS= cmds.file(ref_path, q = True, namespace = True)
+    if cmds.referenceQuery(ref_path, isLoaded=True):
+        cmds.file(ref_path, importReference=True)
+    cmds.namespace(removeNamespace=camNS, mergeNamespaceWithRoot=True)
+    print("namespaces cleared")	
+	
+
+    camNodes = cmds.ls()
+    for node in camNodes:
+        cmds.lockNode(node, l=False)
+    cmds.confirmDialog(message="The Camera should be unlocked bro")
+
+    lockme = cmds.ls(
+        "*_Pad",
+        "*_SDK",
+        "*_Rig",
+        "*Model",
+        "*Engine",
+        "*DNT",
+        "*_SNAP",
+        "*_CTL",
+        "*GRP",
+        "*Grp",
+        "*grp",
+        "*null",
+        "*Null",
+        "*TransRotOffset",
+        "*UE_CAMERA",
+
+
+    )
+    for obj in lockme:
+        for attr in [
+            ".translateX",
+            ".translateY",
+            ".translateZ",
+            ".rotateX",
+            ".rotateY",
+            ".rotateZ",
+            ".scaleX",
+            ".scaleY",
+            ".scaleZ",
+            ".visibility",
+        ]:
+            cmds.setAttr(obj + attr, l=False, k=True)
+    sel= cmds.ls("UE_CAMERA", "AnimCam")
+    for s in sel:
+        cmds.setAttr(s + ".translateX", l=False,k=True)
+        cmds.setAttr(s + ".translateY", l=False,k=True)
+        cmds.setAttr(s + ".translateZ", l=False,k=True)
+        cmds.setAttr(s + ".rotateX", l=False,k=True)
+        cmds.setAttr(s + ".rotateY", l=False,k=True)
+        cmds.setAttr(s + ".rotateZ", l=False,k=True)
+        cmds.setAttr(s + ".scaleX", l=False,k=True)
+        cmds.setAttr(s + ".scaleY", l=False,k=True)
+        cmds.setAttr(s + ".scaleZ", l=False,k=True)
+        cmds.setAttr(s + ".visibility", l=False,k=True)
+        #spicy Attrs
+        cmds.setAttr(s + ".Resolution", l=False,k=True)
+        cmds.setAttr(s + ".FocalLength", l=False,k=True)
+        cmds.setAttr(s + ".DisplayFrustum", l=False,k=True)
+        cmds.setAttr(s + ".DisplayNearClip", l=False,k=True)
+        cmds.setAttr(s + ".NearClipPlane", l=False,k=True)
+        cmds.setAttr(s + ".DisplayFarClip", l=False,k=True)
+        cmds.setAttr(s + ".FarClipPlane", l=False,k=True)
+        cmds.setAttr(s + ".LocatorScale", l=False,k=True)
+    cmds.confirmDialog(message="!!!! Camera is unlocked Bro, DO NOT SAVE THIS FILE !!!!")
+#################################
+
+def timeMe(*args):
+    global startFrame
+    global endFrame 
+
+    
+    
+    def animTime(*args):
+        startFrame=cmds.playbackOptions(q=1,min=1)
+        endFrame=cmds.playbackOptions(q=1,max=1)
+        print(startFrame,endFrame)
+        bakeMe(startFrame,endFrame)
+        
+    def rigTime(*args):
+        startFrame=0.0
+        endFrame=1.0
+        print(startFrame,endFrame)
+        bakeMe(startFrame,endFrame)
+
+
+     
+        
+    timeWin= cmds.window("TIME_SELECT",t=" Select PLEASE",h=50, w=150, s=1)
+    cmds.columnLayout( adjustableColumn=True )
+    cmds.separator( h=10, style='none' )
+    cmds.button( label='Bake a RIG (1 Frame) ', command=rigTime )
+    cmds.separator( h=10, style='none' )
+    cmds.button( label='Bake an Animation', command=animTime )
+    cmds.showWindow()
+        
+
+
+
+def timeCamMe(*args):
+    global startFrame
+    global endFrame 
+
+    
+    
+
+    startFrame=cmds.playbackOptions(q=1,min=1)
+    endFrame=cmds.playbackOptions(q=1,max=1)
+    print(startFrame,endFrame)
+    bakeCam(startFrame,endFrame)
+        
+
+   
+    
+def bakeCam(startFrame,endFrame):
+  
+    
+    topNode=cmds.ls(sl=1)    
+    
+        
+    if len(topNode) >=2:
+        cmds.warning (" Select the top group of the CAMERA bro")
+        cmds.select(clear=1)
+    elif len(topNode) ==0:
+         cmds.warning (" Select SOMETHING")
+         cmds.select(clear=1)   
+    else:
+        selCheck = cmds.objectType(topNode,isType='transform')
+        if selCheck ==1:
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+            cmds.select(topNode,hi=1)
+
+            cmds.bakeResults(simulation=True,bakeOnOverrideLayer=False, t=(startFrame,endFrame),shape=1, mr=1,hi="both",an="keysOrObjects")
+            cmds.select(clear=True)
+            
+            ####Unparents Camera
+            rel = cmds.listRelatives(topNode, c=1,pa=1)
+            cmds.parent(rel[1],w=1)
+            camSel= cmds.ls(sl=1)
+            cmds.select(clear=1)
+            print(camSel)
+
+            cmds.confirmDialog( title='Bake END', message=" RIG is baked, proceding to export... ", button=['OK'], defaultButton='OK', dismissString='OK' )
+   
+            cmds.warning (" BAKE DONE ")
+            cmds.delete("ControlGRP")
+            # Exports the FBX
+            cmds.select(camSel)          
+            
+            path = cmds.fileDialog2(caption="Export baked Camera to...", fileFilter="FBX (*.fbx)")
+            
+##############################
+
+            cmds.FBXResetExport()
+            cmds.FBXExportShapes('-v', True)
+            cmds.FBXExportTangents('-v', True)
+            cmds.FBXExportSmoothMesh('-v', False)
+            cmds.FBXExportInputConnections('-v', True)
+            cmds.FBXExportReferencedAssetsContent('-v', True)
+            
+            ######################ADDED/ Modified BY RIGGING ###################################################################
+            cmds.FBXExportApplyConstantKeyReducer ('-v', False)
+            cmds.FBXExportBakeComplexAnimation('-v', True) 
+            cmds.FBXExportInAscii('-v',True)
+            cmds.FBXExportIncludeChildren('-v',True)
+            cmds.FBXExportSkeletonDefinitions('-v',True)
+            cmds.FBXExportSkins('-v',True)
+            ########################################## NEW CAM TESTING CODE ####################################
+            cmds.FBXProperty('Export|IncludeGrp|CameraGrp|Camera', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|ExtraGrp|Quaternion', '-v', 'Resample As Euler Interpolation')
+            mel.eval("FBXExportQuaternion -v euler")
+            mel.eval("FBXExportBakeComplexAnimation -v true")
+            mel.eval("FBXExportUpAxis  y")
+            mel.eval("FBXExportScaleFactor 1")
+            
+            #########################################################################################
+            
+            cmds.FBXExportCameras('-v', True)
+            cmds.FBXExportLights('-v', True)
+            #cmds.FBXExportUpAxis('-y',True)
+            
+            cmds.FBXExportConvertUnitString(100)
+            cmds.FBXExportInAscii('-v', True)
+            cmds.FBXExportFileVersion('FBX202200')            
+            
+            
+            
+################################
+            mel.eval("FBXExportReferencedAssetsContent -v true")
+            mel.eval("FBXExportAnimationOnly -v false")
+            mel.eval("FBXExportBakeComplexAnimation -v true")
+            mel.eval("FBXExportBakeComplexStart -v " + str(startFrame))
+            mel.eval("FBXExportBakeComplexEnd -v " + str(endFrame))
+            mel.eval("FBXExportBakeComplexStep -v 1")
+            mel.eval("FBXExportUseSceneName -v false")
+            mel.eval("FBXExportQuaternion -v euler")
+####################
+
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|Skins', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|Shape', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|InputConnectionsGrp|IncludeChildren', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|InputConnectionsGrp|InputConnections', '-v', 1)
+
+#######################
+
+
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|ShapeAttributes', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|ShapeAttributes|ShapeAttributesValues', '-v', 'Absolute')
+
+#################
+            mel.eval("FBXExportShapes -v true")
+            mel.eval("FBXExportSkins -v true")
+            # Constraints
+            mel.eval("FBXExportConstraints -v true")
+            # Cameras
+            mel.eval("FBXExportCameras -v true")
+            # Lights
+            mel.eval("FBXExportLights -v true")
+            # Embed Media
+            mel.eval("FBXExportEmbeddedTextures -v true")
+            # Connections
+            mel.eval("FBXExportInputConnections -v true")
+            # Axis Conversion
+            mel.eval("FBXExportUpAxis y")
+            # Version
+            mel.eval("FBXExportFileVersion -v FBX202000")
+            mel.eval("FBXExportInAscii -v true")
+
+
+
+
+
+
+################################
+            
+            res = cmds.FBXExport('-s', True, '-f', path[0])
+            cmds.select(clear=True)
+            # Imports all refs 
+    
+            #cleans var
+            del topNode
+            del startFrame
+            del endFrame
+
+            
+            #cmds.confirmDialog( title='ALL DONE', message="The Rig and anim is exported! ^ _ ^  MAKING NEW FILE", button=['OK'], defaultButton='OK', dismissString='OK' )
+            
+            
+def bakeMe(startFrame,endFrame):
+    
+    cmds.deleteUI("TIME_SELECT")
+
+        
+    topNode = cmds.ls(sl=1)
+        
+    if len(topNode) >=2:
+        cmds.warning (" Select the top group of the rig bro")
+        cmds.select(clear=1)
+    elif len(topNode) ==0:
+         cmds.warning (" Select SOMETHING")
+         cmds.select(clear=1)   
+    else:
+        selCheck = cmds.objectType(topNode,isType='transform')
+        if selCheck ==1:
+            
+            # bakes down deformers to mesh 
+            allMeshes = cmds.ls(type='mesh')
+            allPolyObjs = cmds.listRelatives(allMeshes,parent=1)
+
+            for s in allPolyObjs:
+                cmds.bakePartialHistory(s,prePostDeformers=True)    
+
+ # unlocks model grp           
+            cmds.select("Model")    
+            mod = cmds.ls(sl=1)
+            cmds.setAttr("%s.modelSelect"%mod[0],0)           
+                                                                    
+                                                                                                                                    
+            #Actual BAKE                                                                                                                                                                                                                                                        
+            bs=cmds.ls(type="blendShape")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+            cmds.select(bs,topNode,hi=1)
+            #cmds.bakeResults(simulation=True,bakeOnOverrideLayer=False, t=(startFrame,endFrame))
+            #cmds.bakeResults(simulation=True,bakeOnOverrideLayer=False, t=(startFrame,endFrame),shape=1, rba=1, mr=1,hi="both",cp=1,an="keysOrObjects")  #new command with added  
+            cmds.bakeResults(simulation=True,bakeOnOverrideLayer=False, t=(startFrame,endFrame),shape=1, mr=1,hi="both",an="keysOrObjects")
+            cmds.select(clear=True)
+
+            cmds.confirmDialog( title='Bake END', message=" RIG is baked, proceding to export... ", button=['OK'], defaultButton='OK', dismissString='OK' )
+    
+            cmds.warning (" BAKE DONE ")
+            
+            
+                        
+           #unlocks nodes + nukes constraints and Engine Rig grp    
+    
+            allNodes = cmds.ls(sl=True)
+            for node in allNodes:
+                cmds.lockNode(node, l=False)
+            cmds.select("*Constraint*")  
+            cmds.delete()  
+            
+            cmds.select("Engine")
+            cmds.delete()
+            # Exports the FBX
+            cmds.select(topNode) # bs            
+            
+            path = cmds.fileDialog2(caption="Export baked PROP to...", fileFilter="FBX (*.fbx)")
+            
+##############################
+
+            cmds.FBXResetExport()
+            cmds.FBXExportShapes('-v', True)
+            cmds.FBXExportTangents('-v', True)
+            cmds.FBXExportSmoothMesh('-v', True)
+            cmds.FBXExportInputConnections('-v', True)
+            cmds.FBXExportSmoothingGroups('-v', True)
+            cmds.FBXExportReferencedAssetsContent('-v', True)
+            
+            ######################ADDED/ Modified BY RIGGING ###################################################################
+            cmds.FBXExportApplyConstantKeyReducer ('-v', False)
+            cmds.FBXExportBakeComplexAnimation('-v', True) 
+            cmds.FBXExportInAscii('-v',True)
+            cmds.FBXExportIncludeChildren('-v',True)
+            cmds.FBXExportSkeletonDefinitions('-v',True)
+            cmds.FBXExportSkins('-v',True)
+           
+            
+            #########################################################################################
+            
+            cmds.FBXExportCameras('-v', False)
+            cmds.FBXExportLights('-v', False)
+            #cmds.FBXExportUpAxis('-y',True)
+            
+            cmds.FBXExportConvertUnitString(100)
+            cmds.FBXExportInAscii('-v', True)
+            cmds.FBXExportFileVersion('FBX202200')            
+            
+            
+            
+################################
+            mel.eval("FBXExportSmoothingGroups -v true")
+            mel.eval("FBXExportHardEdges -v false")
+            mel.eval("FBXExportTangents -v false")        
+            
+            mel.eval("FBXExportSmoothMesh -v true")
+            mel.eval("FBXExportInstances -v false")
+            mel.eval("FBXExportReferencedAssetsContent -v true")
+            mel.eval("FBXExportAnimationOnly -v false")
+            mel.eval("FBXExportBakeComplexAnimation -v true")
+            mel.eval("FBXExportBakeComplexStart -v " + str(startFrame))
+            mel.eval("FBXExportBakeComplexEnd -v " + str(endFrame))
+            mel.eval("FBXExportBakeComplexStep -v 1")
+            mel.eval("FBXExportUseSceneName -v false")
+            mel.eval("FBXExportQuaternion -v quaternion")
+####################
+
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|Skins', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|Shape', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|InputConnectionsGrp|IncludeChildren', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|InputConnectionsGrp|InputConnections', '-v', 1)
+#######################
+
+           
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|ShapeAttributes', '-v', 1)
+            cmds.FBXProperty('Export|IncludeGrp|Animation|Deformation|ShapeAttributes|ShapeAttributesValues', '-v', 'Absolute')
+
+#################
+            mel.eval("FBXExportShapes -v true")
+            mel.eval("FBXExportSkins -v true")
+            # Constraints
+            mel.eval("FBXExportConstraints -v false")
+            # Cameras
+            mel.eval("FBXExportCameras -v false")
+            # Lights
+            mel.eval("FBXExportLights -v false")
+            # Embed Media
+            mel.eval("FBXExportEmbeddedTextures -v false")
+            # Connections
+            mel.eval("FBXExportInputConnections -v false")
+            # Axis Conversion
+            mel.eval("FBXExportUpAxis y")
+            # Version
+            #### For some reason the following command FBX version seems to be erroring out on me.eval
+            #mel.eval("FBXExportFileVersion -v FBX202200")
+            mel.eval("FBXExportInAscii -v true")
+
+
+
+
+
+
+################################
+            
+            res = cmds.FBXExport('-s', True, '-f', path[0])
+            cmds.select(clear=True)
+            # Imports all refs 
+    
+            #cleans var
+            del topNode
+            del startFrame
+            del endFrame
+            del allMeshes
+            del allPolyObjs 
+            
+
+            new = cmds.checkBox(newScene, query=True,value=True)
+            if (new):
+                cmds.confirmDialog( title='ALL DONE', message="The Rig and anim is exported! ^ _ ^  MAKING NEW FILE", button=['OK'], defaultButton='OK', dismissString='OK' )
+                cmds.file(force=1, new=1)
+            
+            else:
+                print("DONT SAVE THIS FILE")
+                cmds.confirmDialog( title='ALL DONE', message="The Rig and anim is exported! DONT SAVE!!!!", button=['OK'], defaultButton='OK', dismissString='OK' )                        
+            
+            
+        
+### WINDOW
+if (cmds.window("BAKER", exists=True)):
+    cmds.deleteUI("BAKER")
+
+win = cmds.window("BAKER",t=" RIG BAKER ---- V13.5",h=50, w=80, s=1,menuBar=True)
+cmds.menu( label='Help', helpMenu=True )
+cmds.menuItem( label='"How to use', c =helpMenu )
+
+cmds.frameLayout( label='===CLEAN NAMESPACES, Imports REFS, Renames AnimLayers=== ', mh= 5, bgc=[0,0,0] )
+cmds.columnLayout( adjustableColumn=True )
+delModelNS =cmds.checkBox( label='Delete Model Name Space ??' , v=1 )
+cmds.separator( h=10, style='none' )
+cmds.button(label='CLEAN NAMES ', c=cleanNameSpaces )
+cmds.separator( h=10, style='none' )
+cmds.setParent( '..' )
+
+cmds.frameLayout( label='===SELECT THE TOP GROUP OF THE RIG==== ', mh= 5, bgc=[0,0,0] )
+cmds.columnLayout( adjustableColumn=True )
+newScene =cmds.checkBox( label='Open new scene after bake ??' , v=0 )
+cmds.separator( h=10, style='none' )
+cmds.button(label='BAKE AND EXPORT THE RIG ', c=timeMe )
+cmds.separator( h=60, style='none' )
+cmds.setParent( '..' )
+
+
+cmds.frameLayout( label='===SELECT THE TOP GROUP OF THE CAMERA===', mh= 5, bgc=[0,0.5,0] )
+cmds.columnLayout( adjustableColumn=True )
+cmds.button(label='CLEAN THE CAMERA FIRST', c=unlockCam )
+cmds.separator( h=5, style='none' )
+cmds.button(label='BAKE AND EXPORT THE CAMERA ', c= timeCamMe )
+cmds.separator( h=10, style='none' )
+cmds.setParent( '..' )
+
+cmds.separator( h=10, style='none' )
+
+cmds.frameLayout( label='===Make Rig Groups=== ', mh= 5, bgc=[1,0,0] )
+cmds.columnLayout( adjustableColumn=True )
+cmds.separator( h=10, style='none' )
+cmds.button(label='Make Rig Groups ',c=rigGroups )
+cmds.separator( h=10, style='none' )
+cmds.setParent( '..' )
+
+
+
+
+cmds.showWindow(win)    
+
+
+
